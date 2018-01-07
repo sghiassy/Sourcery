@@ -9,7 +9,6 @@
 import Foundation
 import Commander
 import PathKit
-import XcodeEdit
 import SourceryRuntime
 
 extension Path: ArgumentConvertible {

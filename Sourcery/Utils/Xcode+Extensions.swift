@@ -1,48 +1,27 @@
 import Foundation
-import XcodeEdit
+import xcproj
 
-typealias XcodePath = XcodeEdit.Path
-
-extension XCProjectFile {
-
-    convenience init(path: String) throws {
-        try self.init(xcodeprojURL: URL(fileURLWithPath: path))
-    }
-
-    func sourceFilesPaths(targetName: String, sourceRoot: String) throws -> [Path] {
-        let allTargets = project.targets
-        guard let target = allTargets.filter({ $0.name == targetName }).first else {
+extension XcodeProj {
+    func sourceFilesPaths(targetName: String, sourceRoot: Path) throws -> [Path] {
+        guard let target = pbxproj.objects.targets(named: targetName).first else {
             throw "Missing target \(targetName)."
         }
-
-        let sourceFileRefs = target.buildPhases
-            .flatMap({ $0 as? PBXSourcesBuildPhase })
-            .flatMap({ $0.files })
-            .map({ $0.fileRef })
-
-        let fileRefPaths = sourceFileRefs
-            .flatMap({ $0 as? PBXFileReference })
-            .map({ $0.fullPath })
-
-        let swiftFilesPaths = fileRefPaths.flatMap(pathResolver(sourceRoot: sourceRoot))
-        return swiftFilesPaths
-    }
-
-}
-
-private func pathResolver(sourceRoot: String) -> (XcodePath) -> Path? {
-    return { path in
-        switch path {
-        case let .absolute(absolutePath):
-            return Path(URL(fileURLWithPath: absolutePath).path)
-        case let .relativeTo(sourceTreeFolder, relativePath):
-            switch sourceTreeFolder {
-            case .sourceRoot:
-                let sourceTreeURL = URL(fileURLWithPath: sourceRoot)
-                return Path(sourceTreeURL.appendingPathComponent(relativePath).path)
-            default:
-                return nil
-            }
+        guard let sourcesBuildPhase = pbxproj.objects.sourcesBuildPhases.values.first(where: { target.buildPhases.contains($0.reference) }) else {
+            throw "Missing sources build phase for target \(targetName)."
         }
+        let sourceFilePaths = sourcesBuildPhase.files
+            .flatMap({ pbxproj.objects.buildFiles[$0]?.fileRef })
+            .flatMap(pbxproj.objects.getFileElement(reference:))
+            .flatMap({ (file: PBXFileElement) -> Path? in
+                switch file.sourceTree {
+                case .absolute?:
+                    return file.path.flatMap({ Path($0) })
+                case .sourceRoot?:
+                    return file.path.flatMap({ Path($0, relativeTo: sourceRoot) })
+                default:
+                    return nil
+                }
+            })
+        return sourceFilePaths
     }
 }

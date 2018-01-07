@@ -1,11 +1,11 @@
 import Foundation
-import XcodeEdit
+import xcproj
 import PathKit
 import Yams
 import SourceryRuntime
 
 struct Project {
-    let file: XCProjectFile
+    let file: XcodeProj
     let root: Path
     let targets: [Target]
     let exclude: [Path]
@@ -47,7 +47,7 @@ struct Project {
         let exclude = (dict["exclude"] as? [String])?.map({ Path($0, relativeTo: relativePath) }) ?? []
         self.exclude = exclude.flatMap { $0.allPaths }
 
-        self.file = try XCProjectFile(path: Path(file, relativeTo: relativePath).string)
+        self.file = try XcodeProj(path: Path(file, relativeTo: relativePath))
         self.root = Path(root)
     }
 

@@ -73,7 +73,7 @@ class Sourcery {
                 var modules = [String]()
                 try projects.forEach { project in
                     try project.targets.forEach { target in
-                        let files: [Path] = try project.file.sourceFilesPaths(targetName: target.name, sourceRoot: project.root.string)
+                        let files: [Path] = try project.file.sourceFilesPaths(targetName: target.name, sourceRoot: project.root)
                         files.forEach { file in
                             guard !project.exclude.contains(file) else { return }
                             paths.append(file)

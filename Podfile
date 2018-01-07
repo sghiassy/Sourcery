@@ -24,7 +24,7 @@ target 'Sourcery' do
   pod 'StencilSwiftKit', :git=>'https://github.com/SwiftGen/StencilSwiftKit.git', :branch=>'master'
   pod 'Commander'
   pod 'PathKit'
-  pod 'XcodeEdit', '~> 1.0'
+  pod "xcproj"
   pod 'SourceKittenFramework', '~> 0.17'
   pod 'SwiftTryCatch', :git => 'git@github.com:seanparsons/SwiftTryCatch', :commit => '798c512'
   pod 'libCommonCrypto'
