@@ -11,26 +11,34 @@ extension XcodeProj {
         return pbxproj.objects.sourcesBuildPhases.first(where: { target.buildPhases.contains($0.key) })?.value
     }
 
+    func fullPath(fileElement: PBXFileElement, reference: String, sourceRoot: Path) -> Path? {
+        switch fileElement.sourceTree {
+        case .absolute?:
+            return fileElement.path.flatMap({ Path($0) })
+        case .sourceRoot?:
+            return fileElement.path.flatMap({ Path($0, relativeTo: sourceRoot) })
+        case .group?:
+            guard let group = pbxproj.objects.groups.first(where: { $0.value.children.contains(reference) }) else { return sourceRoot }
+            guard let groupPath = fullPath(fileElement: group.value, reference: group.key, sourceRoot: sourceRoot) else { return nil }
+            return fileElement.path.flatMap({ Path($0, relativeTo: groupPath) })
+        default:
+            return nil
+        }
+    }
+
     func sourceFilesPaths(target: PBXTarget, sourceRoot: Path) -> [Path] {
         let sourceFilePaths = sourcesBuildPhase(forTarget: target)?.files
             .flatMap({ pbxproj.objects.buildFiles[$0]?.fileRef })
-            .flatMap(pbxproj.objects.getFileElement(reference:))
-            .flatMap({ (file: PBXFileElement) -> Path? in
-                switch file.sourceTree {
-                case .absolute?:
-                    return file.path.flatMap({ Path($0) })
-                case .sourceRoot?:
-                    return file.path.flatMap({ Path($0, relativeTo: sourceRoot) })
-                default:
-                    return nil
-                }
+            .flatMap({ ref in pbxproj.objects.getFileElement(reference: ref).map({ (ref, $0) }) })
+            .flatMap({ (reference, file) in
+                fullPath(fileElement: file, reference: reference, sourceRoot: sourceRoot)
             })
         return sourceFilePaths ?? []
     }
 
     var rootGroup: PBXGroup {
-        // swiftlint:disable:next force_cast
-        let groupRef = (pbxproj.objects.getReference(pbxproj.rootObject) as! PBXProject).mainGroup
+        // swiftlint:disable:next force_unwrapping
+        let groupRef = pbxproj.objects.projects[pbxproj.rootObject]!.mainGroup
         // swiftlint:disable:next force_unwrapping
         return pbxproj.objects.groups[groupRef]!
     }
@@ -40,8 +48,9 @@ extension XcodeProj {
         let inGroup = inGroup ?? rootGroup
         var children = inGroup.children
         for groupName in groupName.components(separatedBy: "/") {
-            let groups = pbxproj.objects.groups.flatMap({ children.contains($0.key) ? $0.value : nil })
-            group = groups.first(where: { $0.name == groupName || $0.path == groupName })
+            group = pbxproj.objects.groups.first(where: {
+                children.contains($0.key) && $0.value.name == groupName || $0.value.path == groupName
+            })?.value
             children = group?.children ?? []
         }
         return group
@@ -71,10 +80,9 @@ extension XcodeProj {
         let allFiles = pbxproj.objects.fileReferences
         let fileReference: PBXFileReference
         let fileRef: String
-        if let existingFileReference = allFiles.values.first(where: { $0.path == filePath.string }) {
-            fileReference = existingFileReference
-            // swiftlint:disable:next force_unwrapping
-            fileRef = pbxproj.objects.generateReference(fileReference, fileReference.path!)
+        if let existingFileReference = allFiles.first(where: { $0.value.path == filePath.string }) {
+            fileReference = existingFileReference.value
+            fileRef = existingFileReference.key
         } else {
             fileReference = PBXFileReference(sourceTree: .absolute, name: filePath.lastComponent, lastKnownFileType: PBXFileReference.fileType(path: filePath), path: filePath.string)
             fileRef = pbxproj.objects.generateReference(fileReference, filePath.string)
