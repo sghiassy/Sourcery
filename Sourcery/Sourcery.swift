@@ -316,6 +316,10 @@ extension Sourcery {
                     let result = try generate(template, forParsingResult: parsingResult, outputPath: outputPath)
                     let outputPath = outputPath + generatedPath(for: template.sourcePath)
                     try self.output(result: result, to: outputPath)
+                    if let linkTo = linkTo, let target = linkTo.project.target(named: linkTo.target) {
+                        let fileGroup = linkTo.project.addGroup(named: linkTo.group ?? "Generated", toGroup: nil)
+                        _ = linkTo.project.addSourceFile(at: outputPath, toGroup: fileGroup, target: target)
+                    }
                 }
             } else {
                 let result = try allTemplates.reduce("") { result, template in
