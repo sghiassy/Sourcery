@@ -35,10 +35,16 @@ target 'Sourcery' do
   end
 end
 
+swift4 = ['xcproj']
+
 post_install do |installer|
   installer.pods_project.targets.each do |target|
+    swift_version = '3.2'
+    if swift4.include?(target.name)
+      swift_version = '4.0'
+    end
     target.build_configurations.each do |config|
-      config.build_settings['SWIFT_VERSION'] = '3.0'
+      config.build_settings['SWIFT_VERSION'] = swift_version
     end
   end
 end

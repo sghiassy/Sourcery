@@ -1,27 +1,19 @@
 import Foundation
 
 /// Class that represents a project element.
-public class PBXObject: Referenceable, Decodable {
+public class PBXObject: Decodable {
 
-    public var hashValue: Int { return self.reference.hashValue }
-
-    /// Element unique reference.
-    public let reference: String
-
-    init(reference: String) {
-        self.reference = reference
-    }
-
+    // MARK: - Init
+    
+    init() {}
+    
     // MARK: - Decodable
     
     fileprivate enum CodingKeys: String, CodingKey {
         case reference
     }
     
-    public required init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.reference = try container.decode(.reference)
-    }
+    public required init(from decoder: Decoder) throws {}
     
     public static var isa: String {
         return String(describing: self)
@@ -78,6 +70,10 @@ public class PBXObject: Referenceable, Decodable {
             return try decoder.decode(PBXReferenceProxy.self, from: data)
         case XCVersionGroup.isa:
             return try decoder.decode(XCVersionGroup.self, from: data)
+        case PBXRezBuildPhase.isa:
+            return try decoder.decode(PBXRezBuildPhase.self, from: data)
+        case PBXBuildRule.isa:
+            return try decoder.decode(PBXBuildRule.self, from: data)
         default:
             throw PBXObjectError.unknownElement(isa)
         }

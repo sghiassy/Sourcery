@@ -2,7 +2,7 @@ import Foundation
 
 /// Protocol that defines that the element can return a plist element that represents itself.
 protocol PlistSerializable {
-    func plistKeyAndValue(proj: PBXProj) -> (key: CommentedString, value: PlistValue)
+    func plistKeyAndValue(proj: PBXProj, reference: String) -> (key: CommentedString, value: PlistValue)
     var multiline: Bool { get }
 }
 
@@ -30,16 +30,19 @@ final class PBXProjEncoder {
         writeNewLine()
         write(section: "PBXAggregateTarget", proj: proj, object: proj.objects.aggregateTargets)
         write(section: "PBXBuildFile", proj: proj, object: proj.objects.buildFiles)
+        write(section: "PBXBuildRule", proj: proj, object: proj.objects.buildRules)
         write(section: "PBXContainerItemProxy", proj: proj, object: proj.objects.containerItemProxies)
         write(section: "PBXCopyFilesBuildPhase", proj: proj, object: proj.objects.copyFilesBuildPhases)
         write(section: "PBXFileReference", proj: proj, object: proj.objects.fileReferences)
         write(section: "PBXFrameworksBuildPhase", proj: proj, object: proj.objects.frameworksBuildPhases)
         write(section: "PBXGroup", proj: proj, object: proj.objects.groups)
         write(section: "PBXHeadersBuildPhase", proj: proj, object: proj.objects.headersBuildPhases)
-        write(section: "PBXNativeTarget", proj: proj, object: proj.objects.nativeTargets)
         write(section: "PBXLegacyTarget", proj: proj, object: proj.objects.legacyTargets)
+        write(section: "PBXNativeTarget", proj: proj, object: proj.objects.nativeTargets)
         write(section: "PBXProject", proj: proj, object: proj.objects.projects)
+        write(section: "PBXReferenceProxy", proj: proj, object: proj.objects.referenceProxies)
         write(section: "PBXResourcesBuildPhase", proj: proj, object: proj.objects.resourcesBuildPhases)
+        write(section: "PBXRezBuildPhase", proj: proj, object: proj.objects.carbonResourcesBuildPhases)
         write(section: "PBXShellScriptBuildPhase", proj: proj, object: proj.objects.shellScriptBuildPhases)
         write(section: "PBXSourcesBuildPhase", proj: proj, object: proj.objects.sourcesBuildPhases)
         write(section: "PBXTargetDependency", proj: proj, object: proj.objects.targetDependencies)
@@ -102,15 +105,15 @@ final class PBXProjEncoder {
         output.append("/* \(comment) */")
     }
     
-    private func write<T: Referenceable & PlistSerializable & Equatable>(section: String, proj: PBXProj, object: ReferenceableCollection<T>) {
+    private func write<T: PlistSerializable & Equatable>(section: String, proj: PBXProj, object: ReferenceableCollection<T>) {
         if object.count == 0 { return }
         writeNewLine()
         write(string: "/* Begin \(section) section */")
         writeNewLine()
-        object.referenceValues.sorted { $0.reference < $1.reference }
-            .forEach { (serializable) in
-                let element = serializable.plistKeyAndValue(proj: proj)
-                write(dictionaryKey: element.key, dictionaryValue: element.value, multiline: serializable.multiline)
+        object.sorted(by: { $0.key < $1.key })
+            .forEach { (key, value) in
+                let element = value.plistKeyAndValue(proj: proj, reference: key)
+                write(dictionaryKey: element.key, dictionaryValue: element.value, multiline: value.multiline)
         }
         write(string: "/* End \(section) section */")
         writeNewLine()

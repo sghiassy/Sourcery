@@ -58,7 +58,7 @@ final class XCConfigParser {
                                                                 length: line.count))
                 .flatMap { (match) -> String? in
                     if match.numberOfRanges == 2 {
-                        return NSString(string: line).substring(with: match.rangeAt(1))
+                        return NSString(string: line).substring(with: match.range(at: 1))
                     }
                     return nil
                 }
@@ -83,8 +83,8 @@ final class XCConfigParser {
                                                             length: line.count))
             .flatMap { (match) -> (key: String, value: String)?  in
                 if match.numberOfRanges == 3 {
-                    let key: String = NSString(string: line).substring(with: match.rangeAt(1))
-                    let value: String = NSString(string: line).substring(with: match.rangeAt(2))
+                    let key: String = NSString(string: line).substring(with: match.range(at: 1))
+                    let value: String = NSString(string: line).substring(with: match.range(at: 2))
                     return (key, value)
                 }
                 return nil

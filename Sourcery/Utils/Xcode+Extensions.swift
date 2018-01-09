@@ -8,7 +8,7 @@ extension XcodeProj {
     }
 
     func sourcesBuildPhase(forTarget target: PBXTarget) -> PBXSourcesBuildPhase? {
-        return pbxproj.objects.sourcesBuildPhases.values.first(where: { target.buildPhases.contains($0.reference) })
+        return pbxproj.objects.sourcesBuildPhases.first(where: { target.buildPhases.contains($0.key) })?.value
     }
 
     func sourceFilesPaths(target: PBXTarget, sourceRoot: Path) -> [Path] {
@@ -55,9 +55,10 @@ extension XcodeProj {
                 newGroup = existingGroup
                 toGroup = existingGroup
             } else {
-                newGroup = PBXGroup(reference: pbxproj.generateUUID(for: PBXGroup.self), children: [], sourceTree: .group, path: groupName)
-                pbxproj.objects.addObject(newGroup)
-                toGroup.children.append(newGroup.reference)
+                newGroup = PBXGroup(children: [], sourceTree: .group, path: groupName)
+                let groupRef = pbxproj.objects.generateReference(newGroup, groupName)
+                pbxproj.objects.addObject(newGroup, reference: groupRef)
+                toGroup.children.append(groupRef)
                 toGroup = newGroup
             }
         }
@@ -67,22 +68,27 @@ extension XcodeProj {
     func addSourceFile(at filePath: Path, toGroup: PBXGroup, target: PBXTarget) -> PBXFileReference? {
         guard let sourcesBuildPhase = sourcesBuildPhase(forTarget: target) else { return nil }
 
-        let allFiles = pbxproj.objects.fileReferences.values
+        let allFiles = pbxproj.objects.fileReferences
         let fileReference: PBXFileReference
-        if let existingFileReference = allFiles.first(where: { $0.path == filePath.string }) {
+        let fileRef: String
+        if let existingFileReference = allFiles.values.first(where: { $0.path == filePath.string }) {
             fileReference = existingFileReference
+            // swiftlint:disable:next force_unwrapping
+            fileRef = pbxproj.objects.generateReference(fileReference, fileReference.path!)
         } else {
-            fileReference = PBXFileReference(reference: pbxproj.generateUUID(for: PBXFileReference.self), sourceTree: .absolute, name: filePath.lastComponent, lastKnownFileType: PBXFileReference.fileType(path: filePath), path: filePath.string)
-            pbxproj.objects.addObject(fileReference)
+            fileReference = PBXFileReference(sourceTree: .absolute, name: filePath.lastComponent, lastKnownFileType: PBXFileReference.fileType(path: filePath), path: filePath.string)
+            fileRef = pbxproj.objects.generateReference(fileReference, filePath.string)
+            pbxproj.objects.addObject(fileReference, reference: fileRef)
 
-            let buildFile = PBXBuildFile(reference: pbxproj.generateUUID(for: PBXBuildFile.self), fileRef: fileReference.reference)
-            sourcesBuildPhase.files.append(buildFile.reference)
-            pbxproj.objects.addObject(buildFile)
+            let buildFile = PBXBuildFile(fileRef: fileRef)
+            let buildFileRef = pbxproj.objects.generateReference(buildFile, filePath.string)
+            pbxproj.objects.addObject(buildFile, reference: buildFileRef)
+            sourcesBuildPhase.files.append(buildFileRef)
         }
 
-        let groupFiles = allFiles.filter({ toGroup.children.contains($0.reference) })
-        if groupFiles.first(where: { $0.path == filePath.string }) == nil {
-            toGroup.children.append(fileReference.reference)
+        let groupFiles = allFiles.filter({ toGroup.children.contains($0.key) })
+        if groupFiles.first(where: { $0.value.path == filePath.string }) == nil {
+            toGroup.children.append(fileRef)
         }
 
         return fileReference

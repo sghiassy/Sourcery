@@ -68,6 +68,8 @@ extension PBXProj.Objects {
             return .copyFiles
         } else if headersBuildPhases.contains(where: { _, val in val.files.contains(buildFileReference)}) {
             return .headers
+        } else if carbonResourcesBuildPhases.contains(where: { _, val in val.files.contains(buildFileReference)}) {
+            return .carbonResources
         }
         return nil
     }
@@ -89,6 +91,8 @@ extension PBXProj.Objects {
             return .runScript
         } else if headersBuildPhases.contains(reference: buildPhaseReference) {
             return .headers
+        } else if carbonResourcesBuildPhases.contains(reference: buildPhaseReference) {
+            return .carbonResources
         }
         return nil
     }
@@ -110,6 +114,8 @@ extension PBXProj.Objects {
             return shellScriptBuildPhase.name ?? "ShellScript"
         } else if headersBuildPhases.contains(reference: buildPhaseReference) {
             return "Headers"
+        } else if carbonResourcesBuildPhases.contains(reference: buildPhaseReference) {
+            return "Rez"
         }
         return nil
     }
@@ -126,6 +132,17 @@ extension PBXProj.Objects {
         default:
             return type?.rawValue
         }
+    }
+    
+    /// Returns the object with the given configuration list (project or target)
+    ///
+    /// - Parameter reference: configuration list reference.
+    /// - Returns: target or project with the given configuration list.
+    func objectWithConfigurationList(reference: String) -> PBXObject? {
+        if let project = projects.first(where: { $0.value.buildConfigurationList == reference})?.value {
+            return project
+        }
+        return nativeTargets.first(where: { $0.value.buildConfigurationList == reference})?.value
     }
     
 }
