@@ -106,12 +106,12 @@ class ConfigurationSpec: QuickSpec {
 
                 it("throws error on missing output key") {
                     let config: [String: Any] = ["sources": ["."], "templates": ["."]]
-                    expect(configError(config)).to(equal("Invalid output. 'output' key is missing or is not a string."))
+                    expect(configError(config)).to(equal("Invalid output. 'output' key is missing or is not a string or object."))
                 }
 
                 it("throws error on invalid output format") {
                     let config: [String: Any] = ["sources": ["."], "templates": ["."], "output": ["."]]
-                    expect(configError(config)).to(equal("Invalid output. 'output' key is missing or is not a string."))
+                    expect(configError(config)).to(equal("Invalid output. 'output' key is missing or is not a string or object."))
                 }
 
             }

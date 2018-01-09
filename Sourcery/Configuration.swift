@@ -97,11 +97,9 @@ enum Source {
     case sources(Paths)
 
     init(dict: [String: Any], relativePath: Path) throws {
-        if let projects = dict["project"] as? [[String: Any]] {
+        if let projects = (dict["project"] as? [[String: Any]]) ?? (dict["project"] as? [String: Any]).map({ [$0] }) {
             guard !projects.isEmpty else { throw Configuration.Error.invalidSources(message: "No projects provided.") }
             self = try .projects(projects.map({ try Project(dict: $0, relativePath: relativePath) }))
-        } else if let project = dict["project"] as? [String: Any] {
-            self = try .projects([Project(dict: project, relativePath: relativePath)])
         } else if let sources = dict["sources"] {
             do {
                 self = try .sources(Paths(dict: sources, relativePath: relativePath))
@@ -119,6 +117,79 @@ enum Source {
             return paths.allPaths.isEmpty
         case let .projects(projects):
             return projects.isEmpty
+        }
+    }
+}
+
+enum Output {
+    struct LinkTo {
+        let project: XcodeProj
+        let target: String
+        let group: String?
+
+        init(dict: [String: Any], relativePath: Path) throws {
+            guard let project = dict["project"] as? String else {
+                throw Configuration.Error.invalidOutput(message: "Project file path is not provided. Expected string.")
+            }
+            guard let target = dict["target"] as? String else {
+                throw Configuration.Error.invalidOutput(message: "Target name is not provided. Expected string.")
+            }
+            self.project = try XcodeProj(path: Path(project, relativeTo: relativePath))
+            self.target = target
+            self.group = dict["group"] as? String
+        }
+    }
+
+    // puts all generated files in a single path and links to specified project's target
+    case path(path: Path, linkTo: LinkTo?)
+
+    // puts generated files from each target (key is a target name) to specified path and links it to this target
+    case targets([String: (path: Path, linkTo: LinkTo?)])
+
+    init(dict: [String: Any], relativePath: Path) throws {
+        if let path = dict["path"] as? String {
+            let path = Path(path, relativeTo: relativePath)
+            if let linkToDict = dict["link"] as? [String: Any] {
+                let linkTo = try? LinkTo(dict: linkToDict, relativePath: relativePath)
+                self = .path(path: path, linkTo: linkTo)
+            } else {
+                self = .path(path: path, linkTo: nil)
+            }
+        } else if let projects = (dict["target"] as? [[String: Any]]) ?? (dict["target"] as? [String: Any]).map({ [$0] }) {
+            guard !projects.isEmpty else {
+                throw Configuration.Error.invalidOutput(message: "No output provided.")
+            }
+            var targetsDict = [String: (Path, LinkTo?)]()
+            try projects.forEach({ dict in
+                guard let target = dict["name"] as? String else {
+                    throw Configuration.Error.invalidOutput(message: "No target name provided.")
+                }
+                guard let path = dict["path"] as? String else {
+                    throw Configuration.Error.invalidOutput(message: "No output path provided.")
+                }
+                if let linkToDict = dict["link"] as? [String: Any] {
+                    let linkTo = try? LinkTo(dict: linkToDict, relativePath: relativePath)
+                    targetsDict[target] = (path: Path(path, relativeTo: relativePath), linkTo: linkTo)
+                } else {
+                    targetsDict[target] = (path: Path(path, relativeTo: relativePath), linkTo: nil)
+                }
+            })
+            self = .targets(targetsDict)
+        } else {
+            throw Configuration.Error.invalidOutput(message: "'path' or 'target' key are missing.")
+        }
+    }
+
+    init(_ path: Path, linkTo: LinkTo? = nil) {
+        self = .path(path: path, linkTo: linkTo)
+    }
+
+    var paths: [Path] {
+        switch self {
+        case .path(let path):
+            return [path.path]
+        case .targets(let targets):
+            return targets.map({ $0.1.path })
         }
     }
 }
@@ -150,7 +221,7 @@ struct Configuration {
 
     let source: Source
     let templates: Paths
-    let output: Path
+    let output: Output
     let forceParse: [String]
     let args: [String: NSObject]
 
@@ -185,10 +256,13 @@ struct Configuration {
 
         self.forceParse = dict["force-parse"] as? [String] ?? []
 
-        guard let output = dict["output"] as? String else {
-            throw Configuration.Error.invalidOutput(message: "'output' key is missing or is not a string.")
+        if let output = dict["output"] as? String {
+            self.output = .path(path: Path(output, relativeTo: relativePath), linkTo: nil)
+        } else if let output = dict["output"] as? [String: Any] {
+            self.output = try Output(dict: output, relativePath: relativePath)
+        } else {
+            throw Configuration.Error.invalidOutput(message: "'output' key is missing or is not a string or object.")
         }
-        self.output = Path(output, relativeTo: relativePath)
 
         self.args = dict["args"] as? [String: NSObject] ?? [:]
     }
@@ -196,7 +270,7 @@ struct Configuration {
     init(sources: [Path], templates: [Path], output: Path, forceParse: [String], args: [String: NSObject]) {
         self.source = .sources(Paths(include: sources))
         self.templates = Paths(include: templates)
-        self.output = output
+        self.output = .path(path: output, linkTo: nil)
         self.forceParse = forceParse
         self.args = args
     }

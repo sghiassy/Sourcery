@@ -27,7 +27,7 @@ class Sourcery {
 
     fileprivate var status = ""
     fileprivate var templatesPaths = Paths(include: [])
-    fileprivate var outputPath: Path = ""
+    fileprivate var outputPath: Output = .path(path: "", linkTo: nil)
 
     /// Creates Sourcery processor
     ///
@@ -50,7 +50,7 @@ class Sourcery {
     ///   - forceParse: extensions of generated sourcery file that can be parsed
     ///   - watcherEnabled: Whether daemon watcher should be enabled.
     /// - Throws: Potential errors.
-    func processFiles(_ source: Source, usingTemplates templatesPaths: Paths, output: Path, forceParse: [String] = []) throws -> [FolderWatcher.Local]? {
+    func processFiles(_ source: Source, usingTemplates templatesPaths: Paths, output: Output, forceParse: [String] = []) throws -> [FolderWatcher.Local]? {
         self.templatesPaths = templatesPaths
         self.outputPath = output
 
@@ -71,9 +71,11 @@ class Sourcery {
             case let .projects(projects):
                 var paths = [Path]()
                 var modules = [String]()
-                try projects.forEach { project in
-                    try project.targets.forEach { target in
-                        let files: [Path] = try project.file.sourceFilesPaths(targetName: target.name, sourceRoot: project.root)
+                projects.forEach { project in
+                    project.targets.forEach { target in
+                        guard let projectTarget = project.file.target(named: target.name) else { return }
+
+                        let files: [Path] = project.file.sourceFilesPaths(target: projectTarget, sourceRoot: project.root)
                         files.forEach { file in
                             guard !project.exclude.contains(file) else { return }
                             paths.append(file)
@@ -84,7 +86,7 @@ class Sourcery {
                 result = try self.parse(from: paths, modules: modules)
             }
 
-            try self.generate(templatesPaths, output: output, parsingResult: result)
+            try self.generate(source: source, templatePaths: templatesPaths, output: output, parsingResult: result)
             return result
         }
 
@@ -139,7 +141,7 @@ class Sourcery {
                         } else {
                             Log.info("Templates changed: ")
                         }
-                        try self.generate(Paths(include: [templatesPath]), output: output, parsingResult: result)
+                        try self.generate(source: source, templatePaths: Paths(include: [templatesPath]), output: output, parsingResult: result)
                     } catch {
                         Log.error(error)
                     }
@@ -171,9 +173,9 @@ class Sourcery {
         }
     }
 
-    fileprivate func outputPaths(from: Paths, output: Path) throws -> [Path] {
-        return templatePaths(from: from).map { output + generatedPath(for: $0) }
-    }
+//    fileprivate func outputPaths(from: Paths, output: Path) throws -> [Path] {
+//        return templatePaths(from: from).map { output + generatedPath(for: $0) }
+//    }
 
     private func templatePaths(from: Paths) -> [Path] {
         return from.allPaths.filter { $0.isTemplateFile }
@@ -283,7 +285,6 @@ extension Sourcery {
     }
 
     private func load(artifacts: String, contentSha: String) -> FileParserResult? {
-
         var unarchivedResult: FileParserResult? = nil
         SwiftTryCatch.try({
                               if let unarchived = NSKeyedUnarchiver.unarchiveObject(withFile: artifacts) as? FileParserResult, unarchived.sourceryVersion == Sourcery.version, unarchived.contentSha == contentSha {
@@ -300,7 +301,7 @@ extension Sourcery {
 // MARK: - Generation
 extension Sourcery {
 
-    fileprivate func generate(_ templatePaths: Paths, output: Path, parsingResult: ParsingResult) throws {
+    fileprivate func generate(source: Source, templatePaths: Paths, output: Output, parsingResult: ParsingResult) throws {
         Log.info("Loading templates...")
         let allTemplates = try templates(from: templatePaths)
         Log.info("Loaded \(allTemplates.count) templates.")
@@ -308,28 +309,37 @@ extension Sourcery {
         Log.info("Generating code...")
         status = ""
 
-        guard output.isDirectory else {
-            let result = try allTemplates.reduce("") { result, template in
-                return result + "\n" + (try generate(template, forParsingResult: parsingResult))
+        switch output {
+        case let .path(outputPath, linkTo):
+            if outputPath.isDirectory {
+                try allTemplates.forEach { template in
+                    let result = try generate(template, forParsingResult: parsingResult, outputPath: outputPath)
+                    let outputPath = outputPath + generatedPath(for: template.sourcePath)
+                    try self.output(result: result, to: outputPath)
+                }
+            } else {
+                let result = try allTemplates.reduce("") { result, template in
+                    return result + "\n" + (try generate(template, forParsingResult: parsingResult, outputPath: outputPath))
+                }
+                try self.output(result: result, to: outputPath)
             }
-
-            try self.output(result: result, to: output)
-            return
-        }
-
-        try allTemplates.forEach { template in
-            let outputPath = output + generatedPath(for: template.sourcePath)
-            let result = try generate(template, forParsingResult: parsingResult)
-
-            try self.output(result: result, to: outputPath)
+        case .targets(let targets):
+            break
         }
 
         Log.info("Finished.")
     }
 
     private func output(result: String, to outputPath: Path) throws {
+        var result = result
         if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try writeIfChanged(Sourcery.generationHeader + result, to: outputPath)
+            if outputPath.extension == "swift" {
+                result = Sourcery.generationHeader + result
+            }
+            if !outputPath.parent().exists {
+                try outputPath.parent().mkpath()
+            }
+            try writeIfChanged(result, to: outputPath)
         } else {
             if prune && outputPath.exists {
                 Log.verbose("Removing \(outputPath) as it is empty.")
@@ -340,10 +350,10 @@ extension Sourcery {
         }
     }
 
-    private func generate(_ template: Template, forParsingResult parsingResult: ParsingResult) throws -> String {
+    private func generate(_ template: Template, forParsingResult parsingResult: ParsingResult, outputPath: Path) throws -> String {
         guard watcherEnabled else {
             let result = try Generator.generate(parsingResult.types, template: template, arguments: self.arguments)
-            return try processRanges(in: parsingResult, result: result)
+            return try processRanges(in: parsingResult, result: result, outputPath: outputPath)
         }
 
         var result: String = ""
@@ -353,12 +363,12 @@ extension Sourcery {
             result = error?.description ?? ""
         }, finallyBlock: {})
 
-        return try processRanges(in: parsingResult, result: result)
+        return try processRanges(in: parsingResult, result: result, outputPath: outputPath)
     }
 
-    private func processRanges(in parsingResult: ParsingResult, result: String) throws -> String {
+    private func processRanges(in parsingResult: ParsingResult, result: String, outputPath: Path) throws -> String {
         var result = result
-        result = try processFileRanges(for: parsingResult, in: result)
+        result = try processFileRanges(for: parsingResult, in: result, outputPath: outputPath)
         result = try processInlineRanges(for: parsingResult, in: result)
         return TemplateAnnotationsParser.removingEmptyAnnotations(from: result)
     }
@@ -404,31 +414,16 @@ extension Sourcery {
         return inline.contents
     }
 
-    private func processFileRanges(`for` parsingResult: ParsingResult, in contents: String) throws -> String {
+    private func processFileRanges(`for` parsingResult: ParsingResult, in contents: String, outputPath: Path) throws -> String {
         let files = TemplateAnnotationsParser.parseAnnotations("file", contents: contents)
 
         try files
             .annotatedRanges
             .map { ($0, $1) }
             .forEach({ (filePath, range) in
-                var generatedBody = contents.bridge().substring(with: range)
+                let generatedBody = contents.bridge().substring(with: range)
                 let path = outputPath + (Path(filePath).extension == nil ? "\(filePath).generated.swift" : filePath)
-                if !generatedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    if path.extension == "swift" {
-                        generatedBody = Sourcery.generationHeader + generatedBody
-                    }
-                    if !path.parent().exists {
-                        try path.parent().mkpath()
-                    }
-                    try writeIfChanged(generatedBody, to: path)
-                } else {
-                    if prune && outputPath.exists {
-                        Log.verbose("Removing \(path) as it is empty.")
-                        do { try outputPath.delete() } catch { Log.error("\(error)") }
-                    } else {
-                        Log.verbose("Skipping \(path) as it is empty.")
-                    }
-                }
+                try self.output(result: generatedBody, to: path)
             })
         return files.contents
     }

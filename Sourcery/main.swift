@@ -89,7 +89,7 @@ extension Configuration {
             Log.error("No templates provided.")
             exit(.invalidConfig)
         }
-        _ = Validators.isWriteable(path: output)
+        _ = output.paths.map(Validators.isWriteable(path:))
     }
 
 }
