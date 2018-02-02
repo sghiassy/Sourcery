@@ -1,7 +1,7 @@
 import Foundation
 
 /// This element is an abstract parent for specialized targets.
-public class PBXTarget: PBXObject, Equatable {
+public class PBXTarget: PBXObject {
 
     /// Target build configuration list.
     public var buildConfigurationList: String?
@@ -95,7 +95,12 @@ public class PBXTarget: PBXObject, Equatable {
                 let comment = proj.objects.buildPhaseName(buildPhaseReference: buildPhase)
                 return .string(CommentedString(buildPhase, comment: comment))
         })
-        dictionary["buildRules"] = .array(buildRules.map {.string(CommentedString($0))})
+
+        // Xcode doesn't write empty PBXLegacyTarget buildRules
+        if !(self is PBXLegacyTarget) || !buildRules.isEmpty {
+            dictionary["buildRules"] = .array(buildRules.map {.string(CommentedString($0))})
+        }
+        
         dictionary["dependencies"] = .array(dependencies.map {.string(CommentedString($0, comment: PBXTargetDependency.isa))})
         dictionary["name"] = .string(CommentedString(name))
         if let productName = productName {

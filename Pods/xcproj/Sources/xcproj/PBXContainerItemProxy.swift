@@ -1,7 +1,7 @@
 import Foundation
 
 /// This is the element to decorate a target item.
-final public class PBXContainerItemProxy: PBXObject, Equatable {
+final public class PBXContainerItemProxy: PBXObject {
 
     public enum ProxyType: UInt, Decodable {
         case nativeTarget = 1
@@ -59,8 +59,7 @@ final public class PBXContainerItemProxy: PBXObject, Equatable {
     public required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.containerPortal = try container.decode(.containerPortal)
-        let proxyTypeString: String? = try container.decodeIfPresent(.proxyType)
-        self.proxyType = proxyTypeString.flatMap(UInt.init).flatMap(ProxyType.init)
+        self.proxyType = try container.decodeIntIfPresent(.proxyType).flatMap(ProxyType.init)
         self.remoteGlobalIDString = try container.decodeIfPresent(.remoteGlobalIDString)
         self.remoteInfo = try container.decodeIfPresent(.remoteInfo)
         try super.init(from: decoder)

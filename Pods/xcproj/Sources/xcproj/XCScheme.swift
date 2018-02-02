@@ -169,9 +169,75 @@ final public class XCScheme {
         }
     }
 
+    final public class ExecutionAction {
+        public var title: String
+        public var scriptText: String
+        public var environmentBuildable: BuildableReference?
+
+        public init(scriptText: String, title: String = "Run Script", environmentBuildable: BuildableReference? = nil) {
+            self.scriptText = scriptText
+            self.title = title
+            self.environmentBuildable = environmentBuildable
+        }
+
+        init(element: AEXMLElement) throws {
+            self.scriptText = element["ActionContent"].attributes["scriptText"] ?? ""
+            self.title = element["ActionContent"].attributes["title"] ?? "Run Script"
+            self.environmentBuildable = try? BuildableReference(element: element["ActionContent"]["EnvironmentBuildable"]["BuildableReference"])
+        }
+
+        private static let ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction"
+
+        fileprivate func xmlElement() -> AEXMLElement {
+            let element = AEXMLElement(name: "ExecutionAction",
+                                       value: nil,
+                                       attributes: [ "ActionType": ExecutionAction.ActionType ])
+            let content = AEXMLElement(name: "ActionContent",
+                                       value: nil,
+                                       attributes: [ "title": title,
+                                                     "scriptText": scriptText ])
+            element.addChild(content)
+            if let environmentBuildable = environmentBuildable {
+                let environment = content.addChild(name: "EnvironmentBuildable")
+                environment.addChild(environmentBuildable.xmlElement())
+            }
+            return element
+        }
+    }
+
     // MARK: - Build Action
 
-    final public class BuildAction {
+    public class SerialAction {
+        public var preActions: [ExecutionAction]
+        public var postActions: [ExecutionAction]
+
+        init(_ preActions: [ExecutionAction], _ postActions: [ExecutionAction]) {
+            self.preActions = preActions
+            self.postActions = postActions
+        }
+
+        init(element: AEXMLElement) throws {
+            self.preActions = try element["PreActions"]["ExecutionAction"].all?.map(ExecutionAction.init) ?? []
+            self.postActions = try element["PostActions"]["ExecutionAction"].all?.map(ExecutionAction.init) ?? []
+        }
+
+        fileprivate func writeXML(parent element: AEXMLElement) {
+            if !self.preActions.isEmpty {
+                let preActions = element.addChild(name: "PreActions")
+                self.preActions.forEach { (preAction) in
+                    preActions.addChild(preAction.xmlElement())
+                }
+            }
+            if !self.postActions.isEmpty {
+                let postActions = element.addChild(name: "PostActions")
+                self.postActions.forEach { (postAction) in
+                    postActions.addChild(postAction.xmlElement())
+                }
+            }
+        }
+    }
+
+    final public class BuildAction: SerialAction {
 
         final public class Entry {
 
@@ -230,19 +296,23 @@ final public class XCScheme {
         public var buildImplicitDependencies: Bool
 
         public init(buildActionEntries: [Entry] = [],
+                    preActions: [ExecutionAction] = [],
+                    postActions: [ExecutionAction] = [],
                     parallelizeBuild: Bool = false,
                     buildImplicitDependencies: Bool = false) {
             self.buildActionEntries = buildActionEntries
             self.parallelizeBuild = parallelizeBuild
             self.buildImplicitDependencies = buildImplicitDependencies
+            super.init(preActions, postActions)
         }
 
-        init(element: AEXMLElement) throws {
+        override init(element: AEXMLElement) throws {
             parallelizeBuild = element.attributes["parallelizeBuildables"].map { $0 == "YES" } ?? true
             buildImplicitDependencies = element.attributes["buildImplicitDependencies"].map { $0 == "YES" } ?? true
             self.buildActionEntries = try element["BuildActionEntries"]["BuildActionEntry"]
                 .all?
                 .map(Entry.init) ?? []
+            try super.init(element: element)
         }
 
         fileprivate func xmlElement() -> AEXMLElement {
@@ -250,6 +320,7 @@ final public class XCScheme {
                                        value: nil,
                                        attributes: ["parallelizeBuildables": parallelizeBuild.xmlString,
                                                     "buildImplicitDependencies": buildImplicitDependencies.xmlString])
+            super.writeXML(parent: element)
             let entries = element.addChild(name: "BuildActionEntries")
             buildActionEntries.forEach { (entry) in
                 entries.addChild(entry.xmlElement())
@@ -265,7 +336,7 @@ final public class XCScheme {
         }
     }
 
-    final public class LaunchAction {
+    final public class LaunchAction: SerialAction {
         private static let defaultBuildConfiguration = "Debug"
         public static let defaultDebugServiceExtension = "internal"
         private static let defaultLaunchStyle = Style.auto
@@ -276,6 +347,7 @@ final public class XCScheme {
         }
 
         public var buildableProductRunnable: BuildableProductRunnable?
+        public var macroExpansion: BuildableReference?
         public var selectedDebuggerIdentifier: String
         public var selectedLauncherIdentifier: String
         public var buildConfiguration: String
@@ -287,9 +359,14 @@ final public class XCScheme {
         public var allowLocationSimulation: Bool
         public var locationScenarioReference: LocationScenarioReference?
         public var commandlineArguments: CommandLineArguments?
+        public var language: String?
+        public var region: String?
 
         public init(buildableProductRunnable: BuildableProductRunnable?,
                     buildConfiguration: String,
+                    preActions: [ExecutionAction] = [],
+                    postActions: [ExecutionAction] = [],
+                    macroExpansion: BuildableReference? = nil,
                     selectedDebuggerIdentifier: String = XCScheme.defaultDebugger,
                     selectedLauncherIdentifier: String = XCScheme.defaultLauncher,
                     launchStyle: Style = .auto,
@@ -299,8 +376,11 @@ final public class XCScheme {
                     debugServiceExtension: String = LaunchAction.defaultDebugServiceExtension,
                     allowLocationSimulation: Bool = true,
                     locationScenarioReference: LocationScenarioReference? = nil,
-                    commandlineArguments: CommandLineArguments? = nil) {
+                    commandlineArguments: CommandLineArguments? = nil,
+                    language: String? = nil,
+                    region: String? = nil) {
             self.buildableProductRunnable = buildableProductRunnable
+            self.macroExpansion = macroExpansion
             self.buildConfiguration = buildConfiguration
             self.launchStyle = launchStyle
             self.selectedDebuggerIdentifier = selectedDebuggerIdentifier
@@ -312,9 +392,12 @@ final public class XCScheme {
             self.allowLocationSimulation = allowLocationSimulation
             self.locationScenarioReference = locationScenarioReference
             self.commandlineArguments = commandlineArguments
+            self.language = language
+            self.region = region
+            super.init(preActions, postActions)
         }
 
-        init(element: AEXMLElement) throws {
+        override init(element: AEXMLElement) throws {
             self.buildConfiguration = element.attributes["buildConfiguration"] ?? LaunchAction.defaultBuildConfiguration
             self.selectedDebuggerIdentifier = element.attributes["selectedDebuggerIdentifier"] ?? XCScheme.defaultDebugger
             self.selectedLauncherIdentifier = element.attributes["selectedLauncherIdentifier"] ?? XCScheme.defaultLauncher
@@ -329,6 +412,10 @@ final public class XCScheme {
             if buildableProductRunnableElement.error == nil {
                 self.buildableProductRunnable = try BuildableProductRunnable(element: buildableProductRunnableElement)
             }
+            let buildableReferenceElement = element["MacroExpansion"]["BuildableReference"]
+            if buildableReferenceElement.error == nil {
+                self.macroExpansion = try BuildableReference(element: buildableReferenceElement)
+            }
 
             if element["LocationScenarioReference"].all?.first != nil {
                 self.locationScenarioReference = try LocationScenarioReference(element: element["LocationScenarioReference"])
@@ -340,6 +427,9 @@ final public class XCScheme {
             if commandlineOptions.error == nil {
                 self.commandlineArguments = try CommandLineArguments(element: commandlineOptions)
             }
+            self.language = element.attributes["language"]
+            self.region = element.attributes["region"]
+            try super.init(element: element)
         }
         fileprivate func xmlElement() -> AEXMLElement {
             let element = AEXMLElement(name: "LaunchAction",
@@ -347,12 +437,14 @@ final public class XCScheme {
                                        attributes: ["buildConfiguration": buildConfiguration,
                                                     "selectedDebuggerIdentifier": selectedDebuggerIdentifier,
                                                     "selectedLauncherIdentifier": selectedLauncherIdentifier,
+                                                    "language": language ?? "",
                                                     "launchStyle": launchStyle.rawValue,
                                                     "useCustomWorkingDirectory": useCustomWorkingDirectory.xmlString,
                                                     "ignoresPersistentStateOnLaunch": ignoresPersistentStateOnLaunch.xmlString,
                                                     "debugDocumentVersioning": debugDocumentVersioning.xmlString,
                                                     "debugServiceExtension": debugServiceExtension,
                                                     "allowLocationSimulation": allowLocationSimulation.xmlString])
+            super.writeXML(parent: element)
             if let buildableProductRunnable = buildableProductRunnable {
                 element.addChild(buildableProductRunnable.xmlElement())
             }
@@ -365,71 +457,115 @@ final public class XCScheme {
                 element.addChild(commandlineArguments.xmlElement())
             }
 
+            if let region = region {
+                element.attributes["region"] = region
+            }
+
+            if let macroExpansion = macroExpansion {
+                let macro = element.addChild(name: "MacroExpansion")
+                macro.addChild(macroExpansion.xmlElement())
+            }
+
+            element.addChild(AEXMLElement(name: "AdditionalOptions"))
             return element
         }
     }
 
-    final public class ProfileAction {
+    final public class ProfileAction: SerialAction {
         private static let defaultBuildConfiguration = "Release"
 
         public var buildableProductRunnable: BuildableProductRunnable?
         public var buildConfiguration: String
         public var shouldUseLaunchSchemeArgsEnv: Bool
         public var savedToolIdentifier: String
+        public var ignoresPersistentStateOnLaunch: Bool
         public var useCustomWorkingDirectory: Bool
         public var debugDocumentVersioning: Bool
         public var commandlineArguments: CommandLineArguments?
+        public var macroExpansion: BuildableReference?
+        public var enableTestabilityWhenProfilingTests: Bool
 
         public init(buildableProductRunnable: BuildableProductRunnable?,
                     buildConfiguration: String,
+                    preActions: [ExecutionAction] = [],
+                    postActions: [ExecutionAction] = [],
+                    macroExpansion: BuildableReference? = nil,
                     shouldUseLaunchSchemeArgsEnv: Bool = true,
                     savedToolIdentifier: String = "",
+                    ignoresPersistentStateOnLaunch: Bool = false,
                     useCustomWorkingDirectory: Bool = false,
                     debugDocumentVersioning: Bool = true,
-                    commandlineArguments: CommandLineArguments? = nil) {
+                    commandlineArguments: CommandLineArguments? = nil,
+                    enableTestabilityWhenProfilingTests: Bool = true) {
             self.buildableProductRunnable = buildableProductRunnable
             self.buildConfiguration = buildConfiguration
+            self.macroExpansion = macroExpansion
             self.shouldUseLaunchSchemeArgsEnv = shouldUseLaunchSchemeArgsEnv
             self.savedToolIdentifier = savedToolIdentifier
             self.useCustomWorkingDirectory = useCustomWorkingDirectory
             self.debugDocumentVersioning = debugDocumentVersioning
             self.commandlineArguments = commandlineArguments
+            self.ignoresPersistentStateOnLaunch = ignoresPersistentStateOnLaunch
+            self.enableTestabilityWhenProfilingTests = enableTestabilityWhenProfilingTests
+            super.init(preActions, postActions)
         }
-        init(element: AEXMLElement) throws {
+        override init(element: AEXMLElement) throws {
             self.buildConfiguration = element.attributes["buildConfiguration"] ?? ProfileAction.defaultBuildConfiguration
             self.shouldUseLaunchSchemeArgsEnv = element.attributes["shouldUseLaunchSchemeArgsEnv"].map { $0 == "YES" } ?? true
             self.savedToolIdentifier = element.attributes["savedToolIdentifier"] ?? ""
             self.useCustomWorkingDirectory = element.attributes["useCustomWorkingDirectory"] == "YES"
             self.debugDocumentVersioning = element.attributes["debugDocumentVersioning"].map { $0 == "YES" } ?? true
+            self.ignoresPersistentStateOnLaunch = element.attributes["ignoresPersistentStateOnLaunch"].map { $0 == "YES" } ?? false
 
             let buildableProductRunnableElement = element["BuildableProductRunnable"]
             if buildableProductRunnableElement.error == nil {
                 self.buildableProductRunnable = try BuildableProductRunnable(element: buildableProductRunnableElement)
             }
+            let buildableReferenceElement = element["MacroExpansion"]["BuildableReference"]
+            if buildableReferenceElement.error == nil {
+                self.macroExpansion = try BuildableReference(element: buildableReferenceElement)
+            }
             let commandlineOptions = element["CommandLineArguments"]
             if commandlineOptions.error == nil {
                 self.commandlineArguments = try CommandLineArguments(element: commandlineOptions)
             }
+            enableTestabilityWhenProfilingTests = element.attributes["enableTestabilityWhenProfilingTests"].map { $0 != "No" } ?? true
+            try super.init(element: element)
         }
         fileprivate func xmlElement() -> AEXMLElement {
             let element = AEXMLElement(name: "ProfileAction",
                                        value: nil,
-                                       attributes: ["buildConfiguration": buildConfiguration,
-                                                    "shouldUseLaunchSchemeArgsEnv": shouldUseLaunchSchemeArgsEnv.xmlString,
-                                                    "savedToolIdentifier": savedToolIdentifier,
-                                                    "useCustomWorkingDirectory": useCustomWorkingDirectory.xmlString,
-                                                    "debugDocumentVersioning": debugDocumentVersioning.xmlString])
+                                       attributes: [
+                                        "buildConfiguration": buildConfiguration,
+                                        "shouldUseLaunchSchemeArgsEnv": shouldUseLaunchSchemeArgsEnv.xmlString,
+                                        "savedToolIdentifier": savedToolIdentifier,
+                                        "useCustomWorkingDirectory": useCustomWorkingDirectory.xmlString,
+                                        "debugDocumentVersioning": debugDocumentVersioning.xmlString
+                ])
+            super.writeXML(parent: element)
+            if ignoresPersistentStateOnLaunch {
+                element.attributes["ignoresPersistentStateOnLaunch"] = ignoresPersistentStateOnLaunch.xmlString
+            }
+            if !enableTestabilityWhenProfilingTests {
+                element.attributes["enableTestabilityWhenProfilingTests"] = "No"
+            }
             if let buildableProductRunnable = buildableProductRunnable {
                 element.addChild(buildableProductRunnable.xmlElement())
             }
             if let commandlineArguments = commandlineArguments {
                 element.addChild(commandlineArguments.xmlElement())
             }
+
+            if let macroExpansion = macroExpansion {
+                let macro = element.addChild(name: "MacroExpansion")
+                macro.addChild(macroExpansion.xmlElement())
+            }
+
             return element
         }
     }
 
-    final public class TestAction {
+    final public class TestAction: SerialAction {
         private static let defaultBuildConfiguration = "Debug"
 
         public var testables: [TestableReference]
@@ -440,15 +576,29 @@ final public class XCScheme {
         public var codeCoverageEnabled: Bool
         public var macroExpansion: BuildableReference?
         public var commandlineArguments: CommandLineArguments?
+        public var language: String?
+        public var region: String?
+
+        public enum AttachmentLifetime: String {
+            case keepAlways, keepNever
+        }
+        public var systemAttachmentLifetime: AttachmentLifetime?
+        public var userAttachmentLifetime: AttachmentLifetime?
 
         public init(buildConfiguration: String,
                     macroExpansion: BuildableReference?,
                     testables: [TestableReference] = [],
+                    preActions: [ExecutionAction] = [],
+                    postActions: [ExecutionAction] = [],
                     selectedDebuggerIdentifier: String = XCScheme.defaultDebugger,
                     selectedLauncherIdentifier: String = XCScheme.defaultLauncher,
                     shouldUseLaunchSchemeArgsEnv: Bool = true,
                     codeCoverageEnabled: Bool = false,
-                    commandlineArguments: CommandLineArguments? = nil) {
+                    commandlineArguments: CommandLineArguments? = nil,
+                    language: String? = nil,
+                    region: String? = nil,
+                    systemAttachmentLifetime: AttachmentLifetime? = nil,
+                    userAttachmentLifetime: AttachmentLifetime? = nil) {
             self.buildConfiguration = buildConfiguration
             self.macroExpansion = macroExpansion
             self.testables = testables
@@ -457,8 +607,13 @@ final public class XCScheme {
             self.shouldUseLaunchSchemeArgsEnv = shouldUseLaunchSchemeArgsEnv
             self.codeCoverageEnabled = codeCoverageEnabled
             self.commandlineArguments = commandlineArguments
+            self.language = language
+            self.region = region
+            self.systemAttachmentLifetime = systemAttachmentLifetime
+            self.userAttachmentLifetime = userAttachmentLifetime
+            super.init(preActions, postActions)
         }
-        init(element: AEXMLElement) throws {
+        override init(element: AEXMLElement) throws {
             self.buildConfiguration = element.attributes["buildConfiguration"] ?? TestAction.defaultBuildConfiguration
             self.selectedDebuggerIdentifier = element.attributes["selectedDebuggerIdentifier"] ?? XCScheme.defaultDebugger
             self.selectedLauncherIdentifier = element.attributes["selectedLauncherIdentifier"] ?? XCScheme.defaultLauncher
@@ -477,15 +632,33 @@ final public class XCScheme {
             if commandlineOptions.error == nil {
                 self.commandlineArguments = try CommandLineArguments(element: commandlineOptions)
             }
+            self.language = element.attributes["language"]
+            self.region = element.attributes["region"]
+
+            self.systemAttachmentLifetime = element.attributes["systemAttachmentLifetime"]
+                .flatMap(AttachmentLifetime.init(rawValue:))
+            self.userAttachmentLifetime = element.attributes["userAttachmentLifetime"]
+                .flatMap(AttachmentLifetime.init(rawValue:))
+            try super.init(element: element)
         }
         fileprivate func xmlElement() -> AEXMLElement {
             var attributes: [String: String] = [:]
             attributes["buildConfiguration"] = buildConfiguration
             attributes["selectedDebuggerIdentifier"] = selectedDebuggerIdentifier
             attributes["selectedLauncherIdentifier"] = selectedLauncherIdentifier
+            attributes["language"] = language
+            attributes["region"] = region
             attributes["shouldUseLaunchSchemeArgsEnv"] = shouldUseLaunchSchemeArgsEnv.xmlString
-            attributes["codeCoverageEnabled"] = codeCoverageEnabled.xmlString
+            if codeCoverageEnabled {
+                attributes["codeCoverageEnabled"] = codeCoverageEnabled.xmlString
+            }
+            attributes["systemAttachmentLifetime"] = systemAttachmentLifetime?.rawValue
+            if case .keepAlways? = userAttachmentLifetime {
+                attributes["userAttachmentLifetime"] = userAttachmentLifetime?.rawValue
+            }
+
             let element = AEXMLElement(name: "TestAction", value: nil, attributes: attributes)
+            super.writeXML(parent: element)
             let testablesElement = element.addChild(name: "Testables")
             testables.forEach { (testable) in
                 testablesElement.addChild(testable.xmlElement())
@@ -499,11 +672,14 @@ final public class XCScheme {
                 element.addChild(commandlineArguments.xmlElement())
             }
 
+            element.addChild(AEXMLElement(name: "AdditionalOptions"))
             return element
         }
     }
 
     final public class AnalyzeAction {
+        // Xcode disables PreActions and PostActions for Analyze actions, so this Action
+        // does not exetend SerialAction.
         private static let defaultBuildConfiguration = "Debug"
 
         public var buildConfiguration: String
@@ -520,7 +696,7 @@ final public class XCScheme {
         }
     }
 
-    final public class ArchiveAction {
+    final public class ArchiveAction: SerialAction {
         private static let defaultBuildConfiguration = "Release"
 
         public var buildConfiguration: String
@@ -528,22 +704,28 @@ final public class XCScheme {
         public var customArchiveName: String?
         public init(buildConfiguration: String,
                     revealArchiveInOrganizer: Bool,
-                    customArchiveName: String? = nil) {
+                    customArchiveName: String? = nil,
+                    preActions: [ExecutionAction] = [],
+                    postActions: [ExecutionAction] = []) {
             self.buildConfiguration = buildConfiguration
             self.revealArchiveInOrganizer = revealArchiveInOrganizer
             self.customArchiveName = customArchiveName
+            super.init(preActions, postActions)
         }
-        init(element: AEXMLElement) throws {
+        override init(element: AEXMLElement) throws {
             self.buildConfiguration = element.attributes["buildConfiguration"] ?? ArchiveAction.defaultBuildConfiguration
             self.revealArchiveInOrganizer = element.attributes["revealArchiveInOrganizer"].map { $0 == "YES" } ?? true
             self.customArchiveName = element.attributes["customArchiveName"]
+            try super.init(element: element)
         }
         fileprivate func xmlElement() -> AEXMLElement {
             var attributes: [String: String] = [:]
             attributes["buildConfiguration"] = buildConfiguration
             attributes["customArchiveName"] = customArchiveName
             attributes["revealArchiveInOrganizer"] = revealArchiveInOrganizer.xmlString
-            return AEXMLElement(name: "ArchiveAction", value: nil, attributes: attributes)
+            let element = AEXMLElement(name: "ArchiveAction", value: nil, attributes: attributes)
+            super.writeXML(parent: element)
+            return element
         }
     }
 
@@ -614,28 +796,29 @@ extension XCScheme: Writable {
         schemeAttributes["LastUpgradeVersion"] = lastUpgradeVersion
         schemeAttributes["version"] = version
         let scheme = document.addChild(name: "Scheme", value: nil, attributes: schemeAttributes)
+        if let buildAction = buildAction {
+            scheme.addChild(buildAction.xmlElement())
+        }
+        if let testAction = testAction {
+            scheme.addChild(testAction.xmlElement())
+        }
+        if let launchAction = launchAction {
+            scheme.addChild(launchAction.xmlElement())
+        }
+        if let profileAction = profileAction {
+            scheme.addChild(profileAction.xmlElement())
+        }
         if let analyzeAction = analyzeAction {
             scheme.addChild(analyzeAction.xmlElement())
         }
         if let archiveAction = archiveAction {
             scheme.addChild(archiveAction.xmlElement())
         }
-        if let testAction = testAction {
-            scheme.addChild(testAction.xmlElement())
-        }
-        if let profileAction = profileAction {
-            scheme.addChild(profileAction.xmlElement())
-        }
-        if let buildAction = buildAction {
-            scheme.addChild(buildAction.xmlElement())
-        }
-        if let launchAction = launchAction {
-            scheme.addChild(launchAction.xmlElement())
-        }
+
         if override && path.exists {
             try path.delete()
         }
-        try path.write(document.xml)
+        try path.write(document.xmlXcodeFormat)
     }
 
 }

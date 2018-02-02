@@ -1,7 +1,7 @@
 import Foundation
 
 /// This is the element for listing build configurations.
-final public class XCConfigurationList: PBXObject, Equatable {
+final public class XCConfigurationList: PBXObject {
     
     // MARK: - Attributes
     
@@ -9,7 +9,7 @@ final public class XCConfigurationList: PBXObject, Equatable {
     public var buildConfigurations: [String]
     
     /// Element default configuration is visible.
-    public var defaultConfigurationIsVisible: UInt
+    public var defaultConfigurationIsVisible: Bool
     
     /// Element default configuration name
     public var defaultConfigurationName: String?
@@ -24,7 +24,7 @@ final public class XCConfigurationList: PBXObject, Equatable {
     ///   - defaultConfigurationIsVisible: default configuration is visible.
     public init(buildConfigurations: [String],
                 defaultConfigurationName: String? = nil,
-                defaultConfigurationIsVisible: UInt = 0) {
+                defaultConfigurationIsVisible: Bool = false) {
         self.buildConfigurations = buildConfigurations
         self.defaultConfigurationName = defaultConfigurationName
         self.defaultConfigurationIsVisible = defaultConfigurationIsVisible
@@ -48,8 +48,7 @@ final public class XCConfigurationList: PBXObject, Equatable {
     public required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.buildConfigurations = try container.decode(.buildConfigurations)
-        let defaultConfigurationIsVisibleString: String? = try container.decodeIfPresent(.defaultConfigurationIsVisible)
-        self.defaultConfigurationIsVisible = defaultConfigurationIsVisibleString.flatMap(UInt.init) ?? 0
+        self.defaultConfigurationIsVisible = try container.decodeIntBool(.defaultConfigurationIsVisible)
         self.defaultConfigurationName = try container.decodeIfPresent(.defaultConfigurationName)
         try super.init(from: decoder)
     }
@@ -66,7 +65,7 @@ extension XCConfigurationList: PlistSerializable {
         dictionary["buildConfigurations"] = .array(buildConfigurations
             .map { .string(CommentedString($0, comment: proj.objects.configName(configReference: $0)))
         })
-        dictionary["defaultConfigurationIsVisible"] = .string(CommentedString("\(defaultConfigurationIsVisible)"))
+        dictionary["defaultConfigurationIsVisible"] = .string(CommentedString("\(defaultConfigurationIsVisible.int)"))
         if let defaultConfigurationName = defaultConfigurationName {
             dictionary["defaultConfigurationName"] = .string(CommentedString(defaultConfigurationName))
         }
@@ -75,11 +74,11 @@ extension XCConfigurationList: PlistSerializable {
     }
     
     private func plistComment(proj: PBXProj, reference: String) -> String? {
-        let object = proj.objects.objectWithConfigurationList(reference: reference)
-        if let project = object as? PBXProject {
+        let objectReference = proj.objects.objectWithConfigurationList(reference: reference)
+        if let project = objectReference?.object as? PBXProject {
             return "Build configuration list for PBXProject \"\(project.name)\""
-        } else if let target = object as? PBXNativeTarget {
-            return "Build configuration list for PBXNativeTarget \"\(target.name)\""
+        } else if let target = objectReference?.object as? PBXTarget {
+            return "Build configuration list for \(type(of: target).isa) \"\(target.name)\""
         }
         return nil
     }
