@@ -18,5 +18,5 @@ protocol Template {
     /// - Parameter arguments: List of template arguments.
     /// - Returns: Generated code.
     /// - Throws: `Throws` template errors
-    func render(types: Types, arguments: [String: NSObject]) throws -> String
+    func render(_ context: TemplateContext) throws -> String
 }

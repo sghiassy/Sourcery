@@ -14,7 +14,7 @@ protocol Parsable: class {
 
 extension Parsable {
     /// Source structure used by the parser
-    var __underlyingSource: [String: SourceKitRepresentable] {
+    fileprivate var __underlyingSource: [String: SourceKitRepresentable] {
         return (__parserData as? [String: SourceKitRepresentable]) ?? [:]
     }
 
@@ -28,10 +28,6 @@ extension Type {
 
     var path: Path? {
         return __path.map({ Path($0) })
-    }
-
-    var bodyBytesRange: (offset: Int64, length: Int64)? {
-        return Substring.body.range(for: __underlyingSource)
     }
 
     func bodyRange(_ contents: String) -> NSRange? {
@@ -121,7 +117,7 @@ final class FileParser {
 
     internal func parseTypes(_ source: [String: SourceKitRepresentable], processed: inout [[String: SourceKitRepresentable]]) -> [Type] {
         var types = [Type]()
-        walkDeclarations(source: source, processed: &processed) { kind, name, access, inheritedTypes, source, definedIn in
+        walkDeclarations(source: source, processed: &processed) { kind, name, access, inheritedTypes, source, definedIn, next in
             let type: Type
 
             switch kind {
@@ -150,7 +146,7 @@ final class FileParser {
             case .functionMethodClass,
                  .functionMethodInstance,
                  .functionMethodStatic:
-                return parseMethod(source, definedIn: definedIn as? Type)
+                return parseMethod(source, definedIn: definedIn as? Type, nextStructure: next)
             case .varParameter:
                 if definedIn is SourceryMethod {
                     return parseParameter(source)
@@ -166,6 +162,7 @@ final class FileParser {
             type.isGeneric = isGeneric(source: source)
             type.annotations = annotations.from(source)
             type.attributes = parseDeclarationAttributes(source)
+            type.bodyBytesRange = Substring.body.range(for: source).map { BytesRange(range: $0) }
             type.setSource(source)
             type.__path = path
             types.append(type)
@@ -175,26 +172,44 @@ final class FileParser {
         return finishedParsing(types: types)
     }
 
+    typealias FoundEntry = (
+        /*kind:*/ SwiftDeclarationKind,
+        /*name:*/ String,
+        /*accessLevel:*/ AccessLevel,
+        /*inheritedTypes:*/ [String],
+        /*source:*/ [String: SourceKitRepresentable],
+        /*definedIn:*/ Any?,
+        /*next:*/ [String: SourceKitRepresentable]?
+    ) -> Any?
+
     /// Walks all declarations in the source
-    private func walkDeclarations(source: [String: SourceKitRepresentable], containingIn: (Any, [String: SourceKitRepresentable])? = nil, processed: inout [[String: SourceKitRepresentable]], foundEntry: (SwiftDeclarationKind, String, AccessLevel, [String], [String: SourceKitRepresentable], Any?) -> Any?) {
+    private func walkDeclarations(source: [String: SourceKitRepresentable], containingIn: (Any, [String: SourceKitRepresentable])? = nil, processed: inout [[String: SourceKitRepresentable]], foundEntry: FoundEntry) {
         if let substructures = source[SwiftDocKey.substructure.rawValue] as? [SourceKitRepresentable] {
-            for substructure in substructures {
+            for (index, substructure) in substructures.enumerated() {
                 if let source = substructure as? [String: SourceKitRepresentable] {
                     processed.append(source)
-                    walkDeclaration(source: source, containingIn: containingIn, foundEntry: foundEntry)
+                    let nextStructure = index < substructures.count - 1
+                        ? substructures[index+1] as? [String: SourceKitRepresentable]
+                        : nil
+                    walkDeclaration(
+                        source: source,
+                        next: nextStructure,
+                        containingIn: containingIn,
+                        foundEntry: foundEntry
+                    )
                 }
             }
         }
     }
 
     /// Walks single declaration in the source, recursively processing containing types
-    private func walkDeclaration(source: [String: SourceKitRepresentable], containingIn: (Any, [String: SourceKitRepresentable])? = nil, foundEntry: (SwiftDeclarationKind, String, AccessLevel, [String], [String: SourceKitRepresentable], Any?) -> Any?) {
+    private func walkDeclaration(source: [String: SourceKitRepresentable], next: [String: SourceKitRepresentable]?, containingIn: (Any, [String: SourceKitRepresentable])? = nil, foundEntry: FoundEntry) {
         var declaration = containingIn
 
         let inheritedTypes = extractInheritedTypes(source: source)
 
         if let requirements = parseTypeRequirements(source) {
-            let foundDeclaration = foundEntry(requirements.kind, requirements.name, requirements.accessibility, inheritedTypes, source, containingIn?.0)
+            let foundDeclaration = foundEntry(requirements.kind, requirements.name, requirements.accessibility, inheritedTypes, source, containingIn?.0, next)
             if let foundDeclaration = foundDeclaration, let containingIn = containingIn {
                 processContainedDeclaration(foundDeclaration, within: containingIn)
             }
@@ -262,7 +277,7 @@ final class FileParser {
             for method in type.allMethods {
                 let argumentLabels: [String]
                 if let labels = method.selectorName.range(of: "(")
-                        .map({ method.selectorName.substring(from: $0.upperBound) })?
+                        .map({ String(method.selectorName[$0.upperBound...]) })?
                         .trimmingCharacters(in: CharacterSet(charactersIn: ")"))
                         .components(separatedBy: ":")
                         .dropLast() {
@@ -273,6 +288,11 @@ final class FileParser {
 
                 for (index, parameter) in method.parameters.enumerated() where index < argumentLabels.count {
                     parameter.argumentLabel = argumentLabels[index] != "_" ? argumentLabels[index] : nil
+                }
+
+                // adjust method selector name as methods without parameters do not have ()
+                if method.parameters.isEmpty {
+                    method.selectorName.trimSuffix("()")
                 }
             }
         }
@@ -395,10 +415,10 @@ extension FileParser {
             }
         } else if let initializer = string.range(of: ".init(") {
             //initializer
-            inferredType = string.substring(with: string.startIndex..<initializer.lowerBound)
+            inferredType = String(string[string.startIndex..<initializer.lowerBound])
             return inferredType
         } else if let parens = string.range(of: "("), string.last == ")" {
-            inferredType = string.substring(with: string.startIndex..<parens.lowerBound)
+            inferredType = String(string[string.startIndex..<parens.lowerBound])
             //to avoid inferring i.e. 'Optional.some' for 'Optional.some(...)'
             return inferredType.contains(".") ? nil : inferredType
         } else {
@@ -613,7 +633,7 @@ extension FileParser {
 // MARK: - Methods
 extension FileParser {
 
-    internal func parseMethod(_ source: [String: SourceKitRepresentable], definedIn: Type? = nil) -> SourceryMethod? {
+    internal func parseMethod(_ source: [String: SourceKitRepresentable], definedIn: Type? = nil, nextStructure: [String: SourceKitRepresentable]? = nil) -> SourceryMethod? {
         let requirements = parseTypeRequirements(source)
         guard
             let kind = requirements?.kind,
@@ -638,45 +658,42 @@ extension FileParser {
         var `throws` = false
         var `rethrows` = false
 
-        if name.hasPrefix("init(") {
-            returnTypeName = ""
-        } else {
-            var nameSuffix: String?
-            if source.keys.contains(SwiftDocKey.bodyOffset.rawValue),
-                let suffix = extract(.nameSuffixUpToBody, from: source) {
-                //if declaration has body then get everything up to body start
-                nameSuffix = suffix
-            } else if
-                var key = extract(.key, from: source),
-                let line = extractLines(.key, from: source, contents: contents),
-                let range = line.range(of: key) {
-
-                //otherwise get full declaration and parse it manually
-
-                if let nameSuffix = extract(.nameSuffix, from: source) {
-                    key = key.trimmingSuffix(nameSuffix).trimmingCharacters(in: .whitespaces)
-                }
-
-                let lineSuffix = String(line.suffix(from: range.lowerBound))
-                let components = lineSuffix.semicolonSeparated()
-                if let suffix = components.first {
-                    nameSuffix = suffix
-                        .trimmingCharacters(in: .whitespaces)
-                        .trimmingPrefix(key)
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "}").union(.whitespacesAndNewlines))
-                }
+        var nameSuffix: String?
+        // if declaration has body then get everything up to body start
+        if source.keys.contains(SwiftDocKey.bodyOffset.rawValue) {
+            if let suffix = extract(.nameSuffixUpToBody, from: source) {
+                nameSuffix = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                nameSuffix = ""
             }
+        } else if let nameSuffixRange = Substring.nameSuffix.range(for: source) {
+            // if declaration has no body, usually in protocols, parse it manually
+            var upperBound: Int?
+            if let nextStructure = nextStructure, let range = Substring.key.range(for: nextStructure) {
+                // if there is next declaration, parse until its start
+                upperBound = Int(range.offset)
+            } else if let definedInSource = definedIn?.__underlyingSource, let range = Substring.key.range(for: definedInSource) {
+                // if there are no fiurther declarations, parse until end of containing declaration
+                upperBound = Int(range.offset) + Int(range.length) - 1
+            }
+            if let upperBound = upperBound {
+                let start = Int(nameSuffixRange.offset)
+                let length = upperBound - Int(nameSuffixRange.offset)
+                nameSuffix = contents.bridge()
+                    .substringWithByteRange(start: start, length: length)?
+                    .trimmingCharacters(in: CharacterSet(charactersIn: ";").union(.whitespacesAndNewlines))
+            }
+        }
 
-            if var nameSuffix = nameSuffix {
-                `throws` = nameSuffix.trimPrefix("throws")
-                `rethrows` = nameSuffix.trimPrefix("rethrows")
-                nameSuffix = nameSuffix.trimmingCharacters(in: .whitespacesAndNewlines)
+        if var nameSuffix = nameSuffix {
+            `throws` = nameSuffix.trimPrefix("throws")
+            `rethrows` = nameSuffix.trimPrefix("rethrows")
+            nameSuffix = nameSuffix.trimmingCharacters(in: .whitespacesAndNewlines)
 
-                if nameSuffix.trimPrefix("->") {
-                    returnTypeName = nameSuffix.trimmingCharacters(in: .whitespacesAndNewlines)
-                } else if !nameSuffix.isEmpty {
-                    returnTypeName = nameSuffix.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
+            if nameSuffix.trimPrefix("->") {
+                returnTypeName = nameSuffix.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if !nameSuffix.isEmpty {
+                returnTypeName = nameSuffix.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
 
@@ -717,14 +734,14 @@ extension FileParser {
             return nil
         }
 
-        let wrappedBody = keyString.substring(from: nameRange.upperBound).trimmingCharacters(in: .whitespacesAndNewlines)
+        let wrappedBody = keyString[nameRange.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
 
         switch (wrappedBody.first, wrappedBody.last) {
         case ("="?, _?):
-             let body = wrappedBody.substring(from: wrappedBody.index(after: wrappedBody.startIndex)).trimmingCharacters(in: .whitespacesAndNewlines)
+             let body = wrappedBody[wrappedBody.index(after: wrappedBody.startIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
              rawValue = parseEnumValues(body)
         case ("("?, ")"?):
-             let body = wrappedBody.substring(with: wrappedBody.index(after: wrappedBody.startIndex)..<wrappedBody.index(before: wrappedBody.endIndex)).trimmingCharacters(in: .whitespacesAndNewlines)
+             let body = wrappedBody[wrappedBody.index(after: wrappedBody.startIndex)..<wrappedBody.index(before: wrappedBody.endIndex)].trimmingCharacters(in: .whitespacesAndNewlines)
              associatedValues = parseEnumAssociatedValues(body)
         case (nil, nil):
             break
@@ -891,9 +908,8 @@ extension FileParser {
                 let chars = attributeString
                 let startIndex = chars.index(openIndex, offsetBy: 1)
                 let endIndex = chars.index(chars.endIndex, offsetBy: -1)
-                let optArgumentsString = String(chars[startIndex ..< endIndex])
-                guard let argumentsString = optArgumentsString else { return nil }
-                let arguments = parseAttributeArguments(argumentsString)
+                let argumentsString = String(chars[startIndex ..< endIndex])
+                let arguments = parseAttributeArguments(argumentsString, attribute: name)
 
                 return Attribute(name: name, arguments: arguments, description: "@\(attributeString)")
             } else {
@@ -905,11 +921,16 @@ extension FileParser {
         return attributes
     }
 
-    private func parseAttributeArguments(_ string: String) -> [String: NSObject] {
+    private func parseAttributeArguments(_ string: String, attribute: String) -> [String: NSObject] {
         var arguments = [String: NSObject]()
         string.components(separatedBy: ",", excludingDelimiterBetween: ("\"", "\""))
             .map({ $0.trimmingCharacters(in: .whitespaces) })
             .forEach { argument in
+                if attribute == "objc" {
+                    arguments["name"] = argument as NSString
+                    return
+                }
+
                 guard argument.contains("\"") else {
                     if argument != "*" {
                         arguments[argument.replacingOccurrences(of: " ", with: "_")] = NSNumber(value: true)

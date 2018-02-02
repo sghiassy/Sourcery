@@ -35,6 +35,15 @@ target 'Sourcery' do
   end
 end
 
+target 'SourceryJS' do
+  pod 'PathKit'
+end
+
+target 'SourcerySwift' do
+  pod 'PathKit'
+  pod 'libCommonCrypto'
+end
+
 swift4 = ['xcproj']
 
 post_install do |installer|

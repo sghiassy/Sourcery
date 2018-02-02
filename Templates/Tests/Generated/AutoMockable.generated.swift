@@ -1,4 +1,4 @@
-// Generated using Sourcery 0.10.0 — https://github.com/krzysztofzablocki/Sourcery
+// Generated using Sourcery 0.10.1 — https://github.com/krzysztofzablocki/Sourcery
 // DO NOT EDIT
 
 // swiftlint:disable line_length
@@ -215,6 +215,21 @@ class ThrowableProtocolMock: ThrowableProtocol {
         }
         doOrThrowCallsCount += 1
         return doOrThrowReturnValue
+    }
+
+    //MARK: - doOrThrowVoid
+
+    var doOrThrowVoidThrowableError: Error?
+    var doOrThrowVoidCallsCount = 0
+    var doOrThrowVoidCalled: Bool {
+        return doOrThrowVoidCallsCount > 0
+    }
+
+    func doOrThrowVoid() throws {
+        if let error = doOrThrowVoidThrowableError {
+            throw error
+        }
+        doOrThrowVoidCallsCount += 1
     }
 
 }
