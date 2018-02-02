@@ -84,11 +84,6 @@ class ConfigurationSpec: QuickSpec {
                     expect(configError(config)).to(equal("Invalid sources. Project file path is not provided. Expected string."))
                 }
 
-                it("throws error on missing project root") {
-                    let config: [String: Any] = ["project": ["file": "."], "templates": ["."], "output": "."]
-                    expect(configError(config)).to(equal("Invalid sources. Project root path is not provided. Expected string."))
-                }
-
                 it("throws error on missing target key") {
                     let config: [String: Any] = ["project": ["file": ".", "root": "."], "templates": ["."], "output": "."]
                     expect(configError(config)).to(equal("Invalid sources. 'target' key is missing. Expected object or array of objects."))
