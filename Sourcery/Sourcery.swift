@@ -32,7 +32,7 @@ class Sourcery {
 
     fileprivate var status = ""
     fileprivate var templatesPaths = Paths(include: [])
-    fileprivate var outputPath: Output = .path(path: "", linkTo: nil)
+    fileprivate var outputPath: Output = .dir(path: "", linkTo: nil)
 
     /// Creates Sourcery processor
     ///
@@ -349,25 +349,22 @@ extension Sourcery {
         status = ""
 
         switch output {
-        case let .path(outputPath, linkTo):
-            if outputPath.isDirectory {
-                try allTemplates.forEach { template in
-                    let result = try generate(template, forParsingResult: parsingResult, outputPath: outputPath)
-                    let outputPath = outputPath + generatedPath(for: template.sourcePath)
-                    try self.output(result: result, to: outputPath)
-                    if let linkTo = linkTo, let target = linkTo.project.target(named: linkTo.target) {
-                        let fileGroup = linkTo.project.addGroup(named: linkTo.group ?? "Generated", toGroup: nil)
-                        _ = linkTo.project.addSourceFile(at: outputPath, toGroup: fileGroup, target: target)
-                    }
-                }
-            } else {
-                let result = try allTemplates.reduce("") { result, template in
-                    return result + "\n" + (try generate(template, forParsingResult: parsingResult, outputPath: outputPath))
-                }
+        case let .dir(outputPath, linkTo):
+            try allTemplates.forEach { template in
+                let result = try generate(template, forParsingResult: parsingResult, outputPath: outputPath)
+                let outputPath = outputPath + generatedPath(for: template.sourcePath)
                 try self.output(result: result, to: outputPath)
+
+                if let linkTo = linkTo, let target = linkTo.project.target(named: linkTo.target) {
+                    let fileGroup = linkTo.project.addGroup(named: linkTo.group ?? "SourceryGenerated", to: linkTo.project.rootGroup)
+                    try linkTo.project.addSourceFile(at: outputPath, toGroup: fileGroup, target: target, sourceRoot: linkTo.projectPath)
+                }
             }
-        case .targets(let targets):
-            break
+        case .file(let outputPath):
+            let result = try allTemplates.reduce("") { result, template in
+                return result + "\n" + (try generate(template, forParsingResult: parsingResult, outputPath: outputPath))
+            }
+            try self.output(result: result, to: outputPath)
         }
 
         Log.info("Finished.")

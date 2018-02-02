@@ -27,9 +27,6 @@ struct Project {
         guard let file = dict["file"] as? String else {
             throw Configuration.Error.invalidSources(message: "Project file path is not provided. Expected string.")
         }
-        guard let root = dict["root"] as? String else {
-            throw Configuration.Error.invalidSources(message: "Project root path is not provided. Expected string.")
-        }
 
         let targetsArray: [Target]
         if let targets = dict["target"] as? [[String: String]] {
@@ -47,8 +44,9 @@ struct Project {
         let exclude = (dict["exclude"] as? [String])?.map({ Path($0, relativeTo: relativePath) }) ?? []
         self.exclude = exclude.flatMap { $0.allPaths }
 
-        self.file = try XcodeProj(path: Path(file, relativeTo: relativePath))
-        self.root = Path(root)
+        let path = Path(file, relativeTo: relativePath)
+        self.file = try XcodeProj(path: path)
+        self.root = path
     }
 
 }
@@ -124,72 +122,63 @@ enum Source {
 enum Output {
     struct LinkTo {
         let project: XcodeProj
+        let projectPath: Path
         let target: String
         let group: String?
 
         init(dict: [String: Any], relativePath: Path) throws {
             guard let project = dict["project"] as? String else {
-                throw Configuration.Error.invalidOutput(message: "Project file path is not provided. Expected string.")
+                throw Configuration.Error.invalidOutput(message: "No project file path provided.")
             }
             guard let target = dict["target"] as? String else {
-                throw Configuration.Error.invalidOutput(message: "Target name is not provided. Expected string.")
+                throw Configuration.Error.invalidOutput(message: "No target name provided.")
             }
-            self.project = try XcodeProj(path: Path(project, relativeTo: relativePath))
+            let projectPath = Path(project, relativeTo: relativePath)
+            self.projectPath = projectPath
+            self.project = try XcodeProj(path: projectPath)
             self.target = target
             self.group = dict["group"] as? String
         }
     }
 
-    // puts all generated files in a single path and links to specified project's target
-    case path(path: Path, linkTo: LinkTo?)
+    // puts all generated files at this path and links to specified project's target
+    case dir(path: Path, linkTo: LinkTo?)
 
-    // puts generated files from each target (key is a target name) to specified path and links it to this target
-    case targets([String: (path: Path, linkTo: LinkTo?)])
+    // writes all generated output in this file
+    case file(path: Path)
 
     init(dict: [String: Any], relativePath: Path) throws {
-        if let path = dict["path"] as? String {
-            let path = Path(path, relativeTo: relativePath)
+        guard let path = dict["path"] as? String else {
+            throw Configuration.Error.invalidOutput(message: "No path provided.")
+        }
+
+        let outputPath = Path(path, relativeTo: relativePath)
+        if outputPath.isDirectory {
             if let linkToDict = dict["link"] as? [String: Any] {
                 let linkTo = try? LinkTo(dict: linkToDict, relativePath: relativePath)
-                self = .path(path: path, linkTo: linkTo)
+                self = .dir(path: outputPath, linkTo: linkTo)
             } else {
-                self = .path(path: path, linkTo: nil)
+                self = .dir(path: outputPath, linkTo: nil)
             }
-        } else if let projects = (dict["target"] as? [[String: Any]]) ?? (dict["target"] as? [String: Any]).map({ [$0] }) {
-            guard !projects.isEmpty else {
-                throw Configuration.Error.invalidOutput(message: "No output provided.")
-            }
-            var targetsDict = [String: (Path, LinkTo?)]()
-            try projects.forEach({ dict in
-                guard let target = dict["name"] as? String else {
-                    throw Configuration.Error.invalidOutput(message: "No target name provided.")
-                }
-                guard let path = dict["path"] as? String else {
-                    throw Configuration.Error.invalidOutput(message: "No output path provided.")
-                }
-                if let linkToDict = dict["link"] as? [String: Any] {
-                    let linkTo = try? LinkTo(dict: linkToDict, relativePath: relativePath)
-                    targetsDict[target] = (path: Path(path, relativeTo: relativePath), linkTo: linkTo)
-                } else {
-                    targetsDict[target] = (path: Path(path, relativeTo: relativePath), linkTo: nil)
-                }
-            })
-            self = .targets(targetsDict)
         } else {
-            throw Configuration.Error.invalidOutput(message: "'path' or 'target' key are missing.")
+            self = .file(path: outputPath)
         }
     }
 
     init(_ path: Path, linkTo: LinkTo? = nil) {
-        self = .path(path: path, linkTo: linkTo)
+        if path.isDirectory {
+            self = .dir(path: path, linkTo: linkTo)
+        } else {
+            self = .file(path: path)
+        }
     }
 
     var paths: [Path] {
         switch self {
-        case .path(let path):
-            return [path.path]
-        case .targets(let targets):
-            return targets.map({ $0.1.path })
+        case .dir(let path, _):
+            return [path]
+        case .file(let path):
+            return [path]
         }
     }
 }
@@ -257,7 +246,7 @@ struct Configuration {
         self.forceParse = dict["force-parse"] as? [String] ?? []
 
         if let output = dict["output"] as? String {
-            self.output = .path(path: Path(output, relativeTo: relativePath), linkTo: nil)
+            self.output = Output(Path(output, relativeTo: relativePath))
         } else if let output = dict["output"] as? [String: Any] {
             self.output = try Output(dict: output, relativePath: relativePath)
         } else {
@@ -270,7 +259,7 @@ struct Configuration {
     init(sources: [Path], templates: [Path], output: Path, forceParse: [String], args: [String: NSObject]) {
         self.source = .sources(Paths(include: sources))
         self.templates = Paths(include: templates)
-        self.output = .path(path: output, linkTo: nil)
+        self.output = .dir(path: output, linkTo: nil)
         self.forceParse = forceParse
         self.args = args
     }

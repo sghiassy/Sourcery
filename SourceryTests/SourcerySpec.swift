@@ -500,13 +500,13 @@ class SourcerySpecTests: QuickSpec {
                                 // sourcery:end
                                 """, in: templatePath)
 
-                            _ = try? Sourcery(watcherEnabled: false, cacheDisabled: false).processFiles(.sources(Paths(include: [sourcePath])), usingTemplates: Paths(include: [templatePath]), output: outputDir)
+                            _ = try? Sourcery(watcherEnabled: false, cacheDisabled: false).processFiles(.sources(Paths(include: [sourcePath])), usingTemplates: Paths(include: [templatePath]), output: .dir(path: outputDir, linkTo: nil))
                         }
 
                         it("inserts the generated code if it was deleted") {
                             update(code: "class Foo {}", in: sourcePath)
 
-                            expect { try Sourcery(watcherEnabled: false, cacheDisabled: false).processFiles(.sources(Paths(include: [sourcePath])), usingTemplates: Paths(include: [templatePath]), output: outputDir) }.toNot(throwError())
+                            expect { try Sourcery(watcherEnabled: false, cacheDisabled: false).processFiles(.sources(Paths(include: [sourcePath])), usingTemplates: Paths(include: [templatePath]), output: .dir(path: outputDir, linkTo: nil)) }.toNot(throwError())
 
                             let expectedResult = """
                                 class Foo {
