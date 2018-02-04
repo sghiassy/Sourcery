@@ -1,0 +1,22 @@
+{
+  "name": "sourcery",
+  "version": "1.0.0",
+  "description": "[![CircleCI](https://circleci.com/gh/krzysztofzablocki/Sourcery.svg?style=shield)](https://circleci.com/gh/krzysztofzablocki/Sourcery) [![codecov](https://codecov.io/gh/krzysztofzablocki/Sourcery/branch/master/graph/badge.svg)](https://codecov.io/gh/krzysztofzablocki/Sourcery) [![docs](https://cdn.rawgit.com/krzysztofzablocki/Sourcery/master/docs/badge.svg)](https://cdn.rawgit.com/krzysztofzablocki/Sourcery/master/docs/index.html) [![Version](https://img.shields.io/cocoapods/v/Sourcery.svg?style=flat)](http://cocoapods.org/pods/Sourcery) [![License](https://img.shields.io/cocoapods/l/Sourcery.svg?style=flat)](http://cocoapods.org/pods/Sourcery) [![Platform](https://img.shields.io/cocoapods/p/Sourcery.svg?style=flat)](http://cocoapods.org/pods/Sourcery)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sghiassy/Sourcery.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sghiassy/Sourcery/issues"
+  },
+  "homepage": "https://github.com/sghiassy/Sourcery#readme"
+}
